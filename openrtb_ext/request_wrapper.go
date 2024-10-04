@@ -3,12 +3,12 @@ package openrtb_ext
 import (
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 
-	"github.com/prebid/openrtb/v19/openrtb2"
+	"github.com/prebid/openrtb/v20/openrtb2"
 	"github.com/prebid/prebid-server/v2/util/jsonutil"
-	"github.com/prebid/prebid-server/v2/util/maputil"
 	"github.com/prebid/prebid-server/v2/util/ptrutil"
-	"github.com/prebid/prebid-server/v2/util/sliceutil"
 )
 
 // RequestWrapper wraps the OpenRTB request to provide a storage location for unmarshalled ext fields, so they
@@ -53,12 +53,15 @@ const (
 	consentedProvidersSettingsListKey   = "consented_providers_settings"
 	consentKey                          = "consent"
 	ampKey                              = "amp"
+	dsaKey                              = "dsa"
 	eidsKey                             = "eids"
 	gdprKey                             = "gdpr"
 	prebidKey                           = "prebid"
 	dataKey                             = "data"
 	schainKey                           = "schain"
 	us_privacyKey                       = "us_privacy"
+	cdepKey                             = "cdep"
+	gpcKey                              = "gpc"
 )
 
 // LenImp returns the number of impressions without causing the creation of ImpWrapper objects.
@@ -647,7 +650,6 @@ func (ue *UserExt) SetConsentedProvidersSettingsOut(cpSettings *ConsentedProvide
 
 	ue.consentedProvidersSettingsOut = cpSettings
 	ue.consentedProvidersSettingsOutDirty = true
-	return
 }
 
 func (ue *UserExt) GetPrebid() *ExtUserPrebid {
@@ -681,7 +683,7 @@ func (ue *UserExt) Clone() *UserExt {
 		return nil
 	}
 	clone := *ue
-	clone.ext = maputil.Clone(ue.ext)
+	clone.ext = maps.Clone(ue.ext)
 
 	if ue.consent != nil {
 		clonedConsent := *ue.consent
@@ -690,14 +692,14 @@ func (ue *UserExt) Clone() *UserExt {
 
 	if ue.prebid != nil {
 		clone.prebid = &ExtUserPrebid{}
-		clone.prebid.BuyerUIDs = maputil.Clone(ue.prebid.BuyerUIDs)
+		clone.prebid.BuyerUIDs = maps.Clone(ue.prebid.BuyerUIDs)
 	}
 
 	if ue.eids != nil {
 		clonedEids := make([]openrtb2.EID, len(*ue.eids))
 		for i, eid := range *ue.eids {
 			newEid := eid
-			newEid.UIDs = sliceutil.Clone(eid.UIDs)
+			newEid.UIDs = slices.Clone(eid.UIDs)
 			clonedEids[i] = newEid
 		}
 		clone.eids = &clonedEids
@@ -707,7 +709,7 @@ func (ue *UserExt) Clone() *UserExt {
 		clone.consentedProvidersSettingsIn = &ConsentedProvidersSettingsIn{ConsentedProvidersString: ue.consentedProvidersSettingsIn.ConsentedProvidersString}
 	}
 	if ue.consentedProvidersSettingsOut != nil {
-		clone.consentedProvidersSettingsOut = &ConsentedProvidersSettingsOut{ConsentedProvidersList: sliceutil.Clone(ue.consentedProvidersSettingsOut.ConsentedProvidersList)}
+		clone.consentedProvidersSettingsOut = &ConsentedProvidersSettingsOut{ConsentedProvidersList: slices.Clone(ue.consentedProvidersSettingsOut.ConsentedProvidersList)}
 	}
 
 	return &clone
@@ -858,7 +860,7 @@ func (re *RequestExt) Clone() *RequestExt {
 	}
 
 	clone := *re
-	clone.ext = maputil.Clone(re.ext)
+	clone.ext = maps.Clone(re.ext)
 
 	if re.prebid != nil {
 		clone.prebid = re.prebid.Clone()
@@ -882,6 +884,8 @@ type DeviceExt struct {
 	extDirty    bool
 	prebid      *ExtDevicePrebid
 	prebidDirty bool
+	cdep        string
+	cdepDirty   bool
 }
 
 func (de *DeviceExt) unmarshal(extJson json.RawMessage) error {
@@ -909,6 +913,13 @@ func (de *DeviceExt) unmarshal(extJson json.RawMessage) error {
 		}
 	}
 
+	cdepJson, hasCDep := de.ext[cdepKey]
+	if hasCDep && cdepJson != nil {
+		if err := jsonutil.Unmarshal(cdepJson, &de.cdep); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -930,6 +941,19 @@ func (de *DeviceExt) marshal() (json.RawMessage, error) {
 		de.prebidDirty = false
 	}
 
+	if de.cdepDirty {
+		if len(de.cdep) > 0 {
+			rawjson, err := jsonutil.Marshal(de.cdep)
+			if err != nil {
+				return nil, err
+			}
+			de.ext[cdepKey] = rawjson
+		} else {
+			delete(de.ext, cdepKey)
+		}
+		de.cdepDirty = false
+	}
+
 	de.extDirty = false
 	if len(de.ext) == 0 {
 		return nil, nil
@@ -938,7 +962,7 @@ func (de *DeviceExt) marshal() (json.RawMessage, error) {
 }
 
 func (de *DeviceExt) Dirty() bool {
-	return de.extDirty || de.prebidDirty
+	return de.extDirty || de.prebidDirty || de.cdepDirty
 }
 
 func (de *DeviceExt) GetExt() map[string]json.RawMessage {
@@ -967,13 +991,22 @@ func (de *DeviceExt) SetPrebid(prebid *ExtDevicePrebid) {
 	de.prebidDirty = true
 }
 
+func (de *DeviceExt) GetCDep() string {
+	return de.cdep
+}
+
+func (de *DeviceExt) SetCDep(cdep string) {
+	de.cdep = cdep
+	de.cdepDirty = true
+}
+
 func (de *DeviceExt) Clone() *DeviceExt {
 	if de == nil {
 		return nil
 	}
 
 	clone := *de
-	clone.ext = maputil.Clone(de.ext)
+	clone.ext = maps.Clone(de.ext)
 
 	if de.prebid != nil {
 		clonedPrebid := *de.prebid
@@ -1087,7 +1120,7 @@ func (ae *AppExt) Clone() *AppExt {
 	}
 
 	clone := *ae
-	clone.ext = maputil.Clone(ae.ext)
+	clone.ext = maps.Clone(ae.ext)
 
 	clone.prebid = ptrutil.Clone(ae.prebid)
 
@@ -1153,7 +1186,7 @@ func (de *DOOHExt) Clone() *DOOHExt {
 	}
 
 	clone := *de
-	clone.ext = maputil.Clone(de.ext)
+	clone.ext = maps.Clone(de.ext)
 
 	return &clone
 }
@@ -1165,8 +1198,12 @@ func (de *DOOHExt) Clone() *DOOHExt {
 type RegExt struct {
 	ext            map[string]json.RawMessage
 	extDirty       bool
+	dsa            *ExtRegsDSA
+	dsaDirty       bool
 	gdpr           *int8
 	gdprDirty      bool
+	gpc            *string
+	gpcDirty       bool
 	usPrivacy      string
 	usPrivacyDirty bool
 }
@@ -1186,6 +1223,16 @@ func (re *RegExt) unmarshal(extJson json.RawMessage) error {
 		return err
 	}
 
+	dsaJson, hasDSA := re.ext[dsaKey]
+	if hasDSA {
+		re.dsa = &ExtRegsDSA{}
+	}
+	if dsaJson != nil {
+		if err := jsonutil.Unmarshal(dsaJson, re.dsa); err != nil {
+			return err
+		}
+	}
+
 	gdprJson, hasGDPR := re.ext[gdprKey]
 	if hasGDPR && gdprJson != nil {
 		if err := jsonutil.Unmarshal(gdprJson, &re.gdpr); err != nil {
@@ -1200,10 +1247,30 @@ func (re *RegExt) unmarshal(extJson json.RawMessage) error {
 		}
 	}
 
+	gpcJson, hasGPC := re.ext[gpcKey]
+	if hasGPC && gpcJson != nil {
+		if err := jsonutil.Unmarshal(gpcJson, &re.gpc); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (re *RegExt) marshal() (json.RawMessage, error) {
+	if re.dsaDirty {
+		if re.dsa != nil {
+			rawjson, err := jsonutil.Marshal(re.dsa)
+			if err != nil {
+				return nil, err
+			}
+			re.ext[dsaKey] = rawjson
+		} else {
+			delete(re.ext, dsaKey)
+		}
+		re.dsaDirty = false
+	}
+
 	if re.gdprDirty {
 		if re.gdpr != nil {
 			rawjson, err := jsonutil.Marshal(re.gdpr)
@@ -1230,6 +1297,19 @@ func (re *RegExt) marshal() (json.RawMessage, error) {
 		re.usPrivacyDirty = false
 	}
 
+	if re.gpcDirty {
+		if re.gpc != nil {
+			rawjson, err := jsonutil.Marshal(re.gpc)
+			if err != nil {
+				return nil, err
+			}
+			re.ext[gpcKey] = rawjson
+		} else {
+			delete(re.ext, gpcKey)
+		}
+		re.gpcDirty = false
+	}
+
 	re.extDirty = false
 	if len(re.ext) == 0 {
 		return nil, nil
@@ -1238,7 +1318,7 @@ func (re *RegExt) marshal() (json.RawMessage, error) {
 }
 
 func (re *RegExt) Dirty() bool {
-	return re.extDirty || re.gdprDirty || re.usPrivacyDirty
+	return re.extDirty || re.dsaDirty || re.gdprDirty || re.usPrivacyDirty || re.gpcDirty
 }
 
 func (re *RegExt) GetExt() map[string]json.RawMessage {
@@ -1254,14 +1334,43 @@ func (re *RegExt) SetExt(ext map[string]json.RawMessage) {
 	re.extDirty = true
 }
 
+func (re *RegExt) GetDSA() *ExtRegsDSA {
+	if re.dsa == nil {
+		return nil
+	}
+	dsa := *re.dsa
+	return &dsa
+}
+
+func (re *RegExt) SetDSA(dsa *ExtRegsDSA) {
+	re.dsa = dsa
+	re.dsaDirty = true
+}
+
 func (re *RegExt) GetGDPR() *int8 {
-	gdpr := re.gdpr
-	return gdpr
+	if re.gdpr == nil {
+		return nil
+	}
+	gdpr := *re.gdpr
+	return &gdpr
 }
 
 func (re *RegExt) SetGDPR(gdpr *int8) {
 	re.gdpr = gdpr
 	re.gdprDirty = true
+}
+
+func (re *RegExt) GetGPC() *string {
+	if re.gpc == nil {
+		return nil
+	}
+	gpc := *re.gpc
+	return &gpc
+}
+
+func (re *RegExt) SetGPC(gpc *string) {
+	re.gpc = gpc
+	re.gpcDirty = true
 }
 
 func (re *RegExt) GetUSPrivacy() string {
@@ -1280,7 +1389,7 @@ func (re *RegExt) Clone() *RegExt {
 	}
 
 	clone := *re
-	clone.ext = maputil.Clone(re.ext)
+	clone.ext = maps.Clone(re.ext)
 
 	clone.gdpr = ptrutil.Clone(re.gdpr)
 
@@ -1376,7 +1485,7 @@ func (se *SiteExt) Clone() *SiteExt {
 	}
 
 	clone := *se
-	clone.ext = maputil.Clone(se.ext)
+	clone.ext = maps.Clone(se.ext)
 	clone.amp = ptrutil.Clone(se.amp)
 
 	return &clone
@@ -1479,7 +1588,7 @@ func (se *SourceExt) Clone() *SourceExt {
 	}
 
 	clone := *se
-	clone.ext = maputil.Clone(se.ext)
+	clone.ext = maps.Clone(se.ext)
 
 	clone.schain = cloneSupplyChain(se.schain)
 
@@ -1718,7 +1827,7 @@ func (e *ImpExt) Clone() *ImpExt {
 	}
 
 	clone := *e
-	clone.ext = maputil.Clone(e.ext)
+	clone.ext = maps.Clone(e.ext)
 
 	if e.prebid != nil {
 		clonedPrebid := *e.prebid
@@ -1732,7 +1841,7 @@ func (e *ImpExt) Clone() *ImpExt {
 			}
 		}
 		clonedPrebid.IsRewardedInventory = ptrutil.Clone(e.prebid.IsRewardedInventory)
-		clonedPrebid.Bidder = maputil.Clone(e.prebid.Bidder)
+		clonedPrebid.Bidder = maps.Clone(e.prebid.Bidder)
 		clonedPrebid.Options = ptrutil.Clone(e.prebid.Options)
 		clonedPrebid.Floors = ptrutil.Clone(e.prebid.Floors)
 		clone.prebid = &clonedPrebid

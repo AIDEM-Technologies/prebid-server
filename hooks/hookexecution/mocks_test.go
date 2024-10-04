@@ -7,6 +7,7 @@ import (
 
 	"github.com/prebid/prebid-server/v2/hooks/hookstage"
 	"github.com/prebid/prebid-server/v2/openrtb_ext"
+	"github.com/prebid/prebid-server/v2/util/ptrutil"
 )
 
 type mockUpdateHeaderEntrypointHook struct{}
@@ -57,14 +58,12 @@ func (e mockUpdateBodyHook) HandleEntrypointHook(_ context.Context, _ hookstage.
 func (e mockUpdateBodyHook) HandleRawAuctionHook(_ context.Context, _ hookstage.ModuleInvocationContext, _ hookstage.RawAuctionRequestPayload) (hookstage.HookResult[hookstage.RawAuctionRequestPayload], error) {
 	c := hookstage.ChangeSet[hookstage.RawAuctionRequestPayload]{}
 	c.AddMutation(
-		func(payload hookstage.RawAuctionRequestPayload) (hookstage.RawAuctionRequestPayload, error) {
-			payload = []byte(`{"name": "John", "last_name": "Doe", "foo": "bar"}`)
-			return payload, nil
+		func(_ hookstage.RawAuctionRequestPayload) (hookstage.RawAuctionRequestPayload, error) {
+			return []byte(`{"name": "John", "last_name": "Doe", "foo": "bar"}`), nil
 		}, hookstage.MutationUpdate, "body", "foo",
 	).AddMutation(
-		func(payload hookstage.RawAuctionRequestPayload) (hookstage.RawAuctionRequestPayload, error) {
-			payload = []byte(`{"last_name": "Doe", "foo": "bar"}`)
-			return payload, nil
+		func(_ hookstage.RawAuctionRequestPayload) (hookstage.RawAuctionRequestPayload, error) {
+			return []byte(`{"last_name": "Doe", "foo": "bar"}`), nil
 		}, hookstage.MutationDelete, "body", "name",
 	)
 
@@ -119,9 +118,8 @@ func (e mockTimeoutHook) HandleEntrypointHook(_ context.Context, _ hookstage.Mod
 func (e mockTimeoutHook) HandleRawAuctionHook(_ context.Context, _ hookstage.ModuleInvocationContext, _ hookstage.RawAuctionRequestPayload) (hookstage.HookResult[hookstage.RawAuctionRequestPayload], error) {
 	time.Sleep(20 * time.Millisecond)
 	c := hookstage.ChangeSet[hookstage.RawAuctionRequestPayload]{}
-	c.AddMutation(func(payload hookstage.RawAuctionRequestPayload) (hookstage.RawAuctionRequestPayload, error) {
-		payload = []byte(`{"last_name": "Doe", "foo": "bar", "address": "A st."}`)
-		return payload, nil
+	c.AddMutation(func(_ hookstage.RawAuctionRequestPayload) (hookstage.RawAuctionRequestPayload, error) {
+		return []byte(`{"last_name": "Doe", "foo": "bar", "address": "A st."}`), nil
 	}, hookstage.MutationUpdate, "param", "address")
 
 	return hookstage.HookResult[hookstage.RawAuctionRequestPayload]{ChangeSet: c}, nil
@@ -330,12 +328,16 @@ func (e mockUpdateBidRequestHook) HandleBidderRequestHook(_ context.Context, _ h
 	c := hookstage.ChangeSet[hookstage.BidderRequestPayload]{}
 	c.AddMutation(
 		func(payload hookstage.BidderRequestPayload) (hookstage.BidderRequestPayload, error) {
-			payload.Request.User.Yob = 2000
+			user := ptrutil.Clone(payload.Request.User)
+			user.Yob = 2000
+			payload.Request.User = user
 			return payload, nil
 		}, hookstage.MutationUpdate, "bidRequest", "user.yob",
 	).AddMutation(
 		func(payload hookstage.BidderRequestPayload) (hookstage.BidderRequestPayload, error) {
-			payload.Request.User.Consent = "true"
+			user := ptrutil.Clone(payload.Request.User)
+			user.Consent = "true"
+			payload.Request.User = user
 			return payload, nil
 		}, hookstage.MutationUpdate, "bidRequest", "user.consent",
 	)

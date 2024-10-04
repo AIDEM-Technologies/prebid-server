@@ -575,7 +575,7 @@ func TestParseSignalFromGPPSID(t *testing.T) {
 func TestParseConsentFromGppStr(t *testing.T) {
 	type testOutput struct {
 		gdprConsent string
-		err         error
+		err         []error
 	}
 	testCases := []struct {
 		desc       string
@@ -595,7 +595,7 @@ func TestParseConsentFromGppStr(t *testing.T) {
 			inGppQuery: "malformed",
 			expected: testOutput{
 				gdprConsent: "",
-				err:         errors.New(`error parsing GPP header, base64 decoding: illegal base64 data at input byte 8`),
+				err:         []error{errors.New(`error parsing GPP header, header must have type=3`)},
 			},
 		},
 		{
@@ -619,7 +619,7 @@ func TestParseConsentFromGppStr(t *testing.T) {
 		outConsent, outErr := parseConsentFromGppStr(tc.inGppQuery)
 
 		assert.Equal(t, tc.expected.gdprConsent, outConsent, tc.desc)
-		assert.Equal(t, tc.expected.err, outErr, tc.desc)
+		assert.ElementsMatch(t, tc.expected.err, outErr, tc.desc)
 	}
 }
 
@@ -658,7 +658,7 @@ func TestParseGDPRFromGPP(t *testing.T) {
 					inUri: "/setuid?gpp=malformed",
 					expected: testOutput{
 						reqInfo: gdpr.RequestInfo{GDPRSignal: gdpr.SignalAmbiguous},
-						err:     errors.New("error parsing GPP header, base64 decoding: illegal base64 data at input byte 8"),
+						err:     errors.New("error parsing GPP header, header must have type=3"),
 					},
 				},
 				{
@@ -933,7 +933,7 @@ func TestExtractGDPRInfo(t *testing.T) {
 					inUri: "/setuid?gpp=malformed&gpp_sid=2",
 					expected: testOutput{
 						requestInfo: gdpr.RequestInfo{GDPRSignal: gdpr.SignalAmbiguous},
-						err:         errors.New("error parsing GPP header, base64 decoding: illegal base64 data at input byte 8"),
+						err:         errors.New("error parsing GPP header, header must have type=3"),
 					},
 				},
 				{
@@ -1701,12 +1701,12 @@ func (g *fakePermsSetUID) BidderSyncAllowed(ctx context.Context, bidder openrtb_
 	return false, nil
 }
 
-func (g *fakePermsSetUID) AuctionActivitiesAllowed(ctx context.Context, bidderCoreName openrtb_ext.BidderName, bidder openrtb_ext.BidderName) (permissions gdpr.AuctionPermissions, err error) {
+func (g *fakePermsSetUID) AuctionActivitiesAllowed(ctx context.Context, bidderCoreName openrtb_ext.BidderName, bidder openrtb_ext.BidderName) gdpr.AuctionPermissions {
 	return gdpr.AuctionPermissions{
 		AllowBidRequest: g.personalInfoAllowed,
 		PassGeo:         g.personalInfoAllowed,
 		PassID:          g.personalInfoAllowed,
-	}, nil
+	}
 }
 
 type fakeSyncer struct {

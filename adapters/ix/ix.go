@@ -11,11 +11,12 @@ import (
 	"github.com/prebid/prebid-server/v2/config"
 	"github.com/prebid/prebid-server/v2/errortypes"
 	"github.com/prebid/prebid-server/v2/openrtb_ext"
+	"github.com/prebid/prebid-server/v2/util/ptrutil"
 	"github.com/prebid/prebid-server/v2/version"
 
-	"github.com/prebid/openrtb/v19/native1"
-	native1response "github.com/prebid/openrtb/v19/native1/response"
-	"github.com/prebid/openrtb/v19/openrtb2"
+	"github.com/prebid/openrtb/v20/native1"
+	native1response "github.com/prebid/openrtb/v20/native1/response"
+	"github.com/prebid/openrtb/v20/openrtb2"
 )
 
 type IxAdapter struct {
@@ -83,8 +84,8 @@ func (a *IxAdapter) MakeRequests(request *openrtb2.BidRequest, reqInfo *adapters
 			}
 
 			if len(bannerCopy.Format) == 1 {
-				bannerCopy.W = openrtb2.Int64Ptr(bannerCopy.Format[0].W)
-				bannerCopy.H = openrtb2.Int64Ptr(bannerCopy.Format[0].H)
+				bannerCopy.W = ptrutil.ToPtr(bannerCopy.Format[0].W)
+				bannerCopy.H = ptrutil.ToPtr(bannerCopy.Format[0].H)
 			}
 			imp.Banner = &bannerCopy
 		}
@@ -94,7 +95,7 @@ func (a *IxAdapter) MakeRequests(request *openrtb2.BidRequest, reqInfo *adapters
 
 	setPublisherId(&requestCopy, uniqueSiteIDs, ixDiag)
 
-	err := setIxDiagIntoExtRequest(&requestCopy, ixDiag)
+	err := setIxDiagIntoExtRequest(&requestCopy, ixDiag, version.Ver)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -183,6 +184,7 @@ func createRequestData(a *IxAdapter, request *openrtb2.BidRequest, headers *http
 		Uri:     a.URI,
 		Body:    body,
 		Headers: *headers,
+		ImpIDs:  openrtb_ext.GetImpIDs(request.Imp),
 	}, err
 }
 
@@ -390,7 +392,17 @@ func marshalJsonWithoutUnicode(v interface{}) (string, error) {
 	return strings.TrimSuffix(sb.String(), "\n"), nil
 }
 
-func setIxDiagIntoExtRequest(request *openrtb2.BidRequest, ixDiag *IxDiag) error {
+// extractVersionWithoutCommitHash takes a version string like '0.23.1-g4ee257d8' and returns
+// the prefix without the commit hash: '0.23.1' -
+// the substring preceding the first hyphen.
+func extractVersionWithoutCommitHash(ver string) string {
+	if strings.Contains(ver, "-") {
+		return ver[:strings.Index(ver, "-")]
+	}
+	return ver // if no hyphen, return the original string
+}
+
+func setIxDiagIntoExtRequest(request *openrtb2.BidRequest, ixDiag *IxDiag, ver string) error {
 	extRequest := &ExtRequest{}
 	if request.Ext != nil {
 		if err := json.Unmarshal(request.Ext, &extRequest); err != nil {
@@ -402,10 +414,8 @@ func setIxDiagIntoExtRequest(request *openrtb2.BidRequest, ixDiag *IxDiag) error
 		ixDiag.PbjsV = extRequest.Prebid.Channel.Version
 	}
 	// Slice commit hash out of version
-	if strings.Contains(version.Ver, "-") {
-		ixDiag.PbsV = version.Ver[:strings.Index(version.Ver, "-")]
-	} else if version.Ver != "" {
-		ixDiag.PbsV = version.Ver
+	if ver != "" {
+		ixDiag.PbsV = extractVersionWithoutCommitHash(ver)
 	}
 
 	// Only set request.ext if ixDiag is not empty
